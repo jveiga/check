@@ -3,13 +3,13 @@ check [![License](http://img.shields.io/:license-gpl3-blue.svg)](http://www.gnu.
 
 A set of utilities for checking Go sources.
 
-## Installation
+## Install
 
-    $ go get github.com/opennota/check/cmd/aligncheck
-    $ go get github.com/opennota/check/cmd/structcheck
-    $ go get github.com/opennota/check/cmd/varcheck
+    go get -u gitlab.com/opennota/check/cmd/aligncheck
+    go get -u gitlab.com/opennota/check/cmd/structcheck
+    go get -u gitlab.com/opennota/check/cmd/varcheck
 
-## Usage
+## Use
 
 Find inefficiently packed structs.
 
