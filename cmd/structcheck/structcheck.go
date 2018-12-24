@@ -35,6 +35,7 @@ var (
 type visitor struct {
 	pkg  *packages.Package
 	m    map[types.Type]map[string]int
+	pkgs map[types.Type]*packages.Package
 	skip map[types.Type]struct{}
 }
 
@@ -45,6 +46,7 @@ func (v *visitor) decl(t types.Type, fieldName string) {
 	if _, ok := v.m[t][fieldName]; !ok {
 		v.m[t][fieldName] = 0
 	}
+	v.pkgs[t] = v.pkg
 }
 
 func (v *visitor) assignment(t types.Type, fieldName string) {
@@ -164,46 +166,48 @@ func main() {
 	}
 
 	reported := make(map[string]bool) // track already reported information.
+	visitor := &visitor{
+		m:    make(map[types.Type]map[string]int),
+		skip: make(map[types.Type]struct{}),
+		pkgs: make(map[types.Type]*packages.Package),
+	}
 	for _, pkg := range pkgs {
-		visitor := &visitor{
-			m:    make(map[types.Type]map[string]int),
-			skip: make(map[types.Type]struct{}),
-			pkg:  pkg,
-		}
+		visitor.pkg = pkg
 		for _, f := range pkg.Syntax {
 			ast.Walk(visitor, f)
 		}
-
-		for t := range visitor.m {
-			if _, skip := visitor.skip[t]; skip {
+	}
+	for t := range visitor.m {
+		if _, skip := visitor.skip[t]; skip {
+			continue
+		}
+		pkg := visitor.pkgs[t]
+		for fieldName, v := range visitor.m[t] {
+			if !*reportExported && ast.IsExported(fieldName) {
 				continue
 			}
-			for fieldName, v := range visitor.m[t] {
-				if !*reportExported && ast.IsExported(fieldName) {
+			if v != 0 {
+				continue
+			}
+			field, _, _ := types.LookupFieldOrMethod(t, false, pkg.Types, fieldName)
+			if field == nil {
+				unknown := fmt.Sprintf("%s: unknown field or method: %s.%s\n", pkg.Types.Path(), t, fieldName)
+				report(unknown, reported)
+				exitStatus = 1
+				continue
+			}
+			if fieldName == "XMLName" {
+				if named, ok := field.Type().(*types.Named); ok && named.Obj().Pkg().Path() == "encoding/xml" {
 					continue
 				}
-				if v == 0 {
-					field, _, _ := types.LookupFieldOrMethod(t, false, pkg.Types, fieldName)
-					if field == nil {
-						unknown := fmt.Sprintf("%s: unknown field or method: %s.%s\n", pkg.Types.Path(), t, fieldName)
-						report(unknown, reported)
-						exitStatus = 1
-						continue
-					}
-					if fieldName == "XMLName" {
-						if named, ok := field.Type().(*types.Named); ok && named.Obj().Pkg().Path() == "encoding/xml" {
-							continue
-						}
-					}
-					pos := pkg.Fset.Position(field.Pos())
-					unused := fmt.Sprintf("%s: %s:%d:%d: %s.%s\n",
-						pkg.Types.Path(), pos.Filename, pos.Line, pos.Column,
-						types.TypeString(t, nil), fieldName,
-					)
-					report(unused, reported)
-					exitStatus = 1
-				}
 			}
+			pos := pkg.Fset.Position(field.Pos())
+			unused := fmt.Sprintf("%s: %s:%d:%d: %s.%s\n",
+				pkg.Types.Path(), pos.Filename, pos.Line, pos.Column,
+				types.TypeString(t, nil), fieldName,
+			)
+			report(unused, reported)
+			exitStatus = 1
 		}
 	}
 	os.Exit(exitStatus)
